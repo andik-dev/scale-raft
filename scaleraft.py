@@ -1,59 +1,67 @@
+import random
+import socket
+from threading import Thread
 
-class AppendEntriesRPCResponse(object):
-    def __init__(self, term, success):
-        self.__term = term
-        self.__success = success
-
-
-class AppendEntriesRPC(object):
-    def __init__(self, term, leaderId, prevLogIndex, prevLogTerm, logEntries, leaderCommitIndex):
-        self.__term = term
-        self.__leaderId = leaderId
-        self.__prevLogIndex = prevLogIndex
-        self.__prevLogTerm = prevLogTerm
-        self.__logEntries = logEntries
-        self.__leaderCommitIndex = leaderCommitIndex
-
-
-class RequestVoteRPC(object):
-    def __init__(self, term, candidateId, lastLogIndex, lastLogTerm):
-        self.__term = term
-        self.__candidateId = candidateId
-        self.__lastLogIndex = lastLogIndex
-        self.__lastLogTerm = lastLogTerm
-
-
-class RequestVoteRPCResponse(object):
-    def __init__(self, term, voteGranted):
-        self.__term = term
-        self.__voteGranted = voteGranted
-
-
-class RaftLogEntry(object):
-    def __init__(self, index, term, data):
-        self.__index = index
-        self.__term = term
-        self.__data = data
-
-
-class RaftLog(object):
-    def __init__(self):
-        self.__logEntries = []
-        self.__commitIndex = 0
-        self.__lastApplied = 0
-
-
-class RaftState(object):
-    def __init__(self):
-        self.__currentTerm = 0 # latest term server has seen, set to 0 on boot
-        self.__votedFor = None # The nodename the server voted for in the current term
-        self.__log = RaftLog() # The log
-
-        # For leader
-        self.__nextIndex = {} # map of server -> next index, initialized to leader last log index + 1
-        self.__matchIndex = {} # map of server -> highest replicated log entry index
+from scale_raft_config import ScaleRaftConfig
+from states.states import Follower
 
 
 class RaftServer(object):
-    def __init__(self):
-        pass
+    def __init__(self, servers, port=ScaleRaftConfig().PORT):
+        self.__servers = servers
+        self.__state = Follower(self)
+
+        self.__server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        self.__port = port
+
+        self.__message_loop_thread = Thread(target=self._message_loop)
+        self.__stop = False
+
+        self.__client_threads = []
+
+    def start(self):
+        self.__server_socket.bind((socket.gethostname(), self.__port))
+        self.__server_socket.listen(ScaleRaftConfig().MAX_CONNECTIONS)
+        self.__message_loop_thread.start()
+
+    def send(self, message):
+        print message
+
+    def _handle_new_connection(self, client_socket, address):
+        print "Handling request from: {}".format(address)
+
+        client_socket.shutdown(socket.SHUT_RDWR)
+        client_socket.close()
+        return
+
+    def stop(self):
+        self.__stop = True
+
+    def _message_loop(self):
+        while not self.__stop:
+            (client_socket, address) = self.__server_socket.accept()
+            t = Thread(target=self._handle_new_connection, args=(client_socket, address))
+            self.__client_threads.append(t)
+            t.start()
+
+
+if __name__ == "__main__":
+    server = RaftServer(["localhost"])
+    server.start()
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print socket.gethostname()
+    s.connect((socket.gethostname(), ScaleRaftConfig().PORT))
+    s.send("hello world")
+    s.shutdown(socket.SHUT_RDWR)
+    s.close()
+
+    server.stop()
+
+
+
+
+
+
+
