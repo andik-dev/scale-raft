@@ -28,7 +28,8 @@ class RaftServer(object):
     def send(self, message):
         print message
 
-    def _handle_new_connection(self, client_socket, address):
+    @staticmethod
+    def _handle_new_connection(client_socket, address):
         print "Handling request from: {}".format(address)
 
         client_socket.shutdown(socket.SHUT_RDWR)
