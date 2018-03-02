@@ -77,8 +77,8 @@ class RaftServer(object):
         logger.info("Server listening on {}:{}".format(self.__hostname, self.__port))
 
     def send(self, hostname, port, obj):
-        serialized_string = self._deserialize(obj)
-        self.__rpc_handler.send(hostname, port, serialized_string)
+        serialized_string = self._serialize(obj)
+        return self._deserialize(self.__rpc_handler.send(hostname, port, serialized_string))
 
     def stop(self):
         self.__rpc_handler.shutdown()
@@ -105,9 +105,6 @@ if __name__ == "__main__":
         logger.exception(e)
         exit(1)
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((socket.gethostname(), ScaleRaftConfig().PORT))
-
     #s.send(RequestVoteRPC(Message.VERSION, 2, 3, 4, 5).to_rpc_string())
     log_entries = [
         LogEntry(1, 1, 1),
@@ -117,12 +114,9 @@ if __name__ == "__main__":
 
     #print AppendEntriesRPC(Message.VERSION, 1, 2, 3, 4, 5, log_entries).to_rpc_string()
 
+    resp = server.send(socket.gethostname(), ScaleRaftConfig().PORT, AppendEntries(1, 2, 3, 4, 5, log_entries))
+    print resp
 
-    s.send(ScaleRaftCompressor().compress(AppendEntriesSerializer.serialize_to_string(AppendEntries(1, 2, 3, 4, 5,
-                                                        log_entries))))
-
-    s.shutdown(socket.SHUT_RDWR)
-    s.close()
     server.stop()
 
 
