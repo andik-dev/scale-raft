@@ -16,7 +16,7 @@ class BaseState(object):
         # runtime only
         self.__server = server
 
-    def handle_msg(self, message):
+    def handle(self, message):
         return None
 
 
@@ -34,8 +34,8 @@ class Follower(BaseState):
         self.__leaderId = 0
         pass
 
-    def handle_msg(self, msg):
-        BaseState.handle_msg(self, msg)
+    def handle(self, msg):
+        BaseState.handle(self, msg)
         resp = None
 
         if msg.message_type == MessageType.APPEND_ENTRIES:
