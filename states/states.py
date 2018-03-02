@@ -1,37 +1,37 @@
 from persistence import log
-from rpc.rpc import MessageType, AppendEntriesRPCResponse
+from rpc.messages import MessageType, AppendEntriesResponse
 
 
 class BaseState(object):
     def __init__(self, server):
         # persistent
-        self.__currentTerm = 0  # latest term server has seen, set to 0 on boot
-        self.__votedFor = None  # The nodename the server voted for in the current term
-        self.__log = log.Log()  # The log
+        self.currentTerm = 0  # latest term server has seen, set to 0 on boot
+        self.votedFor = None  # The nodename the server voted for in the current term
+        self.log = log.Log()  # The log
 
         # can be volatile
-        self.__commitIndex = 0
-        self.__lastApplied = 0
+        self.commitIndex = 0
+        self.lastApplied = 0
 
         # runtime only
-        self.__server = server
+        self.server = server
 
     def handle(self, message):
-        return None
+        pass
 
 
 class Leader(BaseState):
     def __init__(self, server):
         BaseState.__init__(self, server)
-        self.__nextIndex = {}  # map of server -> next index, initialized to leader last log index + 1
-        self.__matchIndex = {}  # map of server -> highest replicated log entry index
+        self.nextIndex = {}  # map of server -> next index, initialized to leader last log index + 1
+        self.matchIndex = {}  # map of server -> highest replicated log entry index
         pass
 
 
 class Follower(BaseState):
     def __init__(self, server):
         BaseState.__init__(self, server)
-        self.__leaderId = 0
+        self.leaderId = 0
         pass
 
     def handle(self, msg):
@@ -39,15 +39,16 @@ class Follower(BaseState):
         resp = None
 
         if msg.message_type == MessageType.APPEND_ENTRIES:
-            self.__leaderId = msg.leaderId
-            if msg.term < self.__currentTerm:
-                resp = AppendEntriesRPCResponse(self.__currentTerm, False)
-            if self.__log.exists_entry(msg.prevLogIndex, msg.prevLogTerm):
-                resp = AppendEntriesRPCResponse(self.__currentTerm, False)
+            self.leaderId = msg.leaderId
+            if msg.term < self.currentTerm:
+                resp = AppendEntriesResponse(self.currentTerm, False)
+            if self.log.exists(msg.prevLogIndex, msg.prevLogTerm):
+                resp = AppendEntriesResponse(self.currentTerm, False)
 
-            index_of_last_new_entry = self.__log.append_entries(msg.entries)
-            if msg.leaderCommit > self.__commitIndex:
-                self.__commitIndex = min(msg.leaderCommit, index_of_last_new_entry)
+            index_of_last_new_entry = self.log.append_entries(msg.logEntries)
+            if msg.leaderCommitIndex > self.commitIndex:
+                self.commitIndex = min(msg.leaderCommitIndex, index_of_last_new_entry)
+            resp = AppendEntriesResponse(self.currentTerm, True)
 
         elif msg.message_type == MessageType.APPEND_ENTRIES_RESPONSE:
             pass
@@ -58,8 +59,7 @@ class Follower(BaseState):
         elif msg.message_type == MessageType.REQUEST_VOTE_RESPONSE:
             pass
 
-        if resp is not None:
-            self.__server.send(resp)
+        return resp
 
 
 class Candidate(BaseState):
