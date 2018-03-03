@@ -1,4 +1,3 @@
-import socket
 import threading
 from threading import Thread
 import argparse
@@ -6,7 +5,9 @@ import logging
 from time import sleep
 import zlib
 
-from rpc.messages import AppendEntries, LogEntry, ClientData, ClientDataResponse
+
+from helper import helper
+from rpc.messages import ClientData, ClientDataResponse
 from rpc.rpc_handler import RPCHandler
 from rpc.serializer import ScaleRaftSerializer
 from scale_raft_config import ScaleRaftConfig
@@ -50,12 +51,16 @@ class ScaleRaftServer(object):
         self.__compressor = compressor()
         self.__encryptor = encryptor()
 
-        self.__rpc_handler = rpc_handler(self.hostname, self.port, self._handle_msg, self._handle_timeout)
+        self.__rpc_handler = rpc_handler(self.hostname, self.port, self._handle_msg)
         self.__serializer = serializer()
 
         self.__send_threads = []
 
         self.__stop = False
+
+        self._timeout_thread = Thread(target=self._timeout_thread_worker)
+        self._last_valid_rpc = helper.get_current_time_millis()
+        self._timeout_thread.start()
 
     @property
     def state(self):
@@ -69,15 +74,23 @@ class ScaleRaftServer(object):
         self._state = state
         self.__stateLock.release()
 
-    def _handle_timeout(self):
-        if isinstance(self.state, Follower) or isinstance(self.state, Candidate):
-            self.state = Candidate(self)
+    def _timeout_thread_worker(self):
+        while not self.__stop:
+            sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
+            if len(self.peers) > 0 and isinstance(self.state, Follower) or isinstance(self.state, Candidate):
+                current_time_millis = helper.get_current_time_millis()
+                if (current_time_millis - self._last_valid_rpc) < ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
+                    logger.info("No valid RPC received, switch to candidate")
+                    self.state = Candidate(self)
 
     def _handle_msg(self, string):
         obj = self._deserialize(string)
+
+        self._last_valid_rpc = helper.get_current_time_millis()
+
         resp_obj = self.state.handle(obj)
 
-        # wait until a new leader is found
+        # wait until a new leader is found before denying a client a request
         if isinstance(resp_obj, ClientDataResponse):
             if not resp_obj.success and resp_obj.leaderId is None:
                 while not self.__stop and self.state.currentLeaderId is None:
@@ -148,11 +161,14 @@ class ScaleRaftServer(object):
         for t in self.__send_threads:
             while t.is_alive():
                 pass
+        while self._timeout_thread.is_alive():
+            pass
         logger.info("Server stopped successfully.")
 
 
 if __name__ == "__main__":
     argparse = argparse.ArgumentParser(description="Start a new server or send a message as a client")
+    argparse.add_argument("--test", action="store_true")
     argparse.add_argument("--server", action="store_true")
     argparse.add_argument("--peers", type=str, default=ScaleRaftConfig().PORT)
     argparse.add_argument("--client", action="store_true")
@@ -186,6 +202,14 @@ if __name__ == "__main__":
         except Exception as e:
             logger.exception(e)
             exit(1)
+
+    if args.test or (not args.client and not args.server):
+        server1 = ScaleRaftServer([("localhost", 48001), ("andi-vbox", 48002)], hostname="127.0.0.1", port=48000)
+        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="andi-vbox", port=48002)
+        server3 = ScaleRaftServer([("andi-vbox", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
+        server1.start()
+        server2.start()
+        server3.start()
 
 
 

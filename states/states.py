@@ -30,10 +30,16 @@ class BaseState(object):
                 return False, ClientDataResponse(False, self.currentLeaderId)
             return True, None  # continue processing
 
-        if self.currentTerm < obj.term and not isinstance(self.server.state, Follower):
+        if self.currentTerm < obj.term:
             self.currentTerm = obj.term
-            self.server.state = Follower(self.server)
-            return False, None  # stop processing
+            if not isinstance(self.server.state, Follower):
+                self.server.state = Follower(self.server)
+            if obj.message_type == MessageType.REQUEST_VOTE:
+                logger.info("Voting for {}".format(obj.candidateId))
+                self.currentLeaderId = None
+                return False, RequestVoteResponse(self.currentTerm, True)
+            if obj.message_type == MessageType.APPEND_ENTRIES:
+                return False, AppendEntriesResponse(self.currentTerm, False)
 
         if obj.message_type == MessageType.REQUEST_VOTE:
             if obj.term < self.currentTerm:
@@ -42,6 +48,7 @@ class BaseState(object):
             if (self.votedFor is None or self.votedFor == obj.candidateId) \
                     and obj.term >= self.currentTerm \
                     and obj.lastLogIndex >= self.log.lastAppliedIndex:
+                logger.info("Voting for {}".format(obj.candidateId))
                 self.currentLeaderId = None
                 return False, RequestVoteResponse(self.currentTerm, True)
 

@@ -9,9 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class RPCHandler(object):
-    def __init__(self, hostname, port, msg_handler, timeout_handler):
+    def __init__(self, hostname, port, msg_handler):
         self._msg_handler = msg_handler
-        self._timeout_handler = timeout_handler
         self.__hostname = hostname
         self.__port = port
         self.__shutdown = False
@@ -51,7 +50,7 @@ class RPCHandler(object):
                 cs.close()
                 return string
             except Exception as e:
-                logger.error(str(e))
+                logger.error("Failed to connect to {}:{}: {}".format(hostname, port, str(e)))
                 sleep(1)
 
     def _message_loop(self):
@@ -63,7 +62,8 @@ class RPCHandler(object):
                 self.__client_threads.append(t)
                 t.start()
             except socket.timeout:
-                self._timeout_handler()
+                # ignore
+                pass
 
     def _handle_new_connection(self, client_socket):
         string = self._recv(client_socket)
