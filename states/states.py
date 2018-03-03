@@ -45,6 +45,8 @@ class BaseState(object):
                 self.currentLeaderId = None
                 return False, RequestVoteResponse(self.currentTerm, True)
 
+            return False, RequestVoteResponse(self.currentTerm, False)
+
         return True, None  # continue processing
 
 
@@ -60,7 +62,7 @@ class Leader(BaseState):
         self.currentLeaderId = self.server.hostname
 
     def broadcast_heartbeat(self):
-        while True:
+        while isinstance(self.server.state, Leader):
             obj = AppendEntries(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
             self.server.broadcast(obj)
@@ -158,6 +160,7 @@ class Candidate(BaseState):
 
         if obj.message_type == MessageType.APPEND_ENTRIES:
             if obj.term >= self.currentTerm:
+                self.currentLeaderId = obj.leaderId
                 self.server.state = Follower(self.server)
                 self.server.state.handle(obj)
             return

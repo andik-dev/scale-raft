@@ -135,7 +135,12 @@ class ScaleRaftServer(object):
     def broadcast(self, obj):
         # self.send_and_handle_async(self.hostname, ScaleRaftConfig().PORT, obj)
         for peer in self.peers:
-            self.send_and_handle_async(peer, ScaleRaftConfig().PORT, obj)
+            host = peer
+            port = int(ScaleRaftConfig().PORT)
+            if isinstance(peer, tuple):
+                host = peer[0]
+                port = int(peer[1])
+            self.send_and_handle_async(host, port, obj)
 
     def stop(self):
         self.__stop = True
@@ -149,13 +154,22 @@ class ScaleRaftServer(object):
 if __name__ == "__main__":
     argparse = argparse.ArgumentParser(description="Start a new server or send a message as a client")
     argparse.add_argument("--server", action="store_true")
+    argparse.add_argument("--peers", type=str, default=ScaleRaftConfig().PORT)
     argparse.add_argument("--client", action="store_true")
-    argparse.add_argument("--host", type=str, default=None)
-    argparse.add_argument("--port", type=int, default=None)
+    argparse.add_argument("--host", type=str, default=ScaleRaftConfig().HOSTNAME)
+    argparse.add_argument("--port", type=int, default=ScaleRaftConfig().PORT)
     args = argparse.parse_args()
 
+    # python scale_raft_server.py --server --host andi-vbox --port 48000 --peers localhost:48001,127.0.0.1:48002
+    # python scale_raft_server.py --server --host localhost --port 48001 --peers andi-vbox:48000,127.0.0.1:48002
+    # python scale_raft_server.py --server --host 127.0.0.1 --port 48002 --peers localhost:48001,andi-vbox:48000
     if args.server:
-        server = ScaleRaftServer([])
+        peer_tuples = []
+        for peer in args.peers.split(","):
+            splitted_peer = peer.split(":")
+            peer_tuples.append((splitted_peer[0], splitted_peer[1]))
+
+        server = ScaleRaftServer(peer_tuples, hostname=args.host, port=args.port)
         try:
             server.start()
         except Exception as e:
@@ -168,7 +182,7 @@ if __name__ == "__main__":
             server = ScaleRaftServer([])
             logger.info("Connecting to: {}:{}".format(args.host, args.port))
             resp = server.send(args.host, args.port, ClientData("hello world"))
-            print resp
+            print "Success: {}, Leader: {}".format(resp.success, resp.leaderId)
         except Exception as e:
             logger.exception(e)
             exit(1)
