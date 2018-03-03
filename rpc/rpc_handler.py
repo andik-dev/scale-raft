@@ -1,6 +1,7 @@
 import logging
 import socket
 from threading import Thread
+from time import sleep
 
 from scale_raft_config import ScaleRaftConfig
 
@@ -8,8 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 class RPCHandler(object):
-    def __init__(self, hostname, port, msg_handler):
-        self.__msg_handler = msg_handler
+    def __init__(self, hostname, port, msg_handler, timeout_handler):
+        self._msg_handler = msg_handler
+        self._timeout_handler = timeout_handler
         self.__hostname = hostname
         self.__port = port
         self.__shutdown = False
@@ -19,26 +21,38 @@ class RPCHandler(object):
         self.__message_loop_thread = Thread(target=self._message_loop)
 
     def startup(self):
+        self.__server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.__server_socket.bind((self.__hostname, self.__port))
         self.__server_socket.listen(ScaleRaftConfig().MAX_CONNECTIONS)
         self.__message_loop_thread.start()
 
     def shutdown(self):
+        logger.info("Shutting down...")
         self.__shutdown = True
+        while self.__message_loop_thread.is_alive():
+            pass
         for t in self.__client_threads:
-            print "t={}, isAlive()={}".format(t.getName(), t.isAlive())
+            while t.is_alive():
+                pass
+        self.__server_socket.close()
+        logger.info("Finished.")
 
     def send(self, hostname, port, string):
-        cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        cs.settimeout(ScaleRaftConfig().CLIENT_SOCKET_TIMEOUT_IN_SECONDS)
-        cs.connect((hostname, port))
+        sent = False
+        while not sent and not self.__shutdown:
+            try:
+                cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                cs.settimeout(ScaleRaftConfig().CLIENT_SOCKET_TIMEOUT_IN_SECONDS)
+                cs.connect((hostname, port))
 
-        self._send(cs, string)
-        cs.shutdown(socket.SHUT_WR)
-        string = self._recv(cs)
-        #cs.shutdown(socket.SHUT_RD)
-        cs.close()
-        return string
+                self._send(cs, string)
+                sent = True
+                string = self._recv(cs)
+                cs.close()
+                return string
+            except Exception as e:
+                logger.error(str(e))
+                sleep(1)
 
     def _message_loop(self):
         while not self.__shutdown:
@@ -49,20 +63,19 @@ class RPCHandler(object):
                 self.__client_threads.append(t)
                 t.start()
             except socket.timeout:
-                pass
+                self._timeout_handler()
 
     def _handle_new_connection(self, client_socket):
-        msg = self._recv(client_socket)
-        resp = self.__msg_handler(msg)
+        string = self._recv(client_socket)
+        resp = self._msg_handler(string)
         if resp is not None:
             self._send(client_socket, resp)
-        client_socket.shutdown(socket.SHUT_RDWR)
         client_socket.close()
-        return msg
+        return string
 
     @staticmethod
     def _send(client_socket, string):
-        # client_socket.sendall(string)
+        string += '\0'
         bytes_sent = 0
         while bytes_sent < len(string):
             bytes_sent += client_socket.send(string[bytes_sent:])
@@ -75,7 +88,11 @@ class RPCHandler(object):
             chunk = client_socket.recv(buf_size)
             if len(chunk) == 0:
                 break
+            if chunk[-1] == '\0':
+                chunks.append(chunk[0:-1])
+                break
             chunks.append(chunk)
+
         string = b''.join(chunks)
         return string
 

@@ -5,6 +5,9 @@ class MessageType(object):
     REQUEST_VOTE = 3
     REQUEST_VOTE_RESPONSE = 4
 
+    CLIENT_DATA = 5
+    CLIENT_DATA_RESPONSE = 6
+
 
 class BaseMessage(object):
     VERSION = 1
@@ -15,11 +18,10 @@ class BaseMessage(object):
 
 
 class RequestVote(BaseMessage):
-
     def __init__(self, term, candidate_id, last_log_index, last_log_term):
         BaseMessage.__init__(self, MessageType.REQUEST_VOTE)
         self.term = int(term)
-        self.candidateId = int(candidate_id)
+        self.candidateId = str(candidate_id)
         self.lastLogIndex = int(last_log_index)
         self.lastLogTerm = int(last_log_term)
 
@@ -54,5 +56,18 @@ class LogEntry(object):
         self.index = int(index)
         self.term = int(term)
         self.data = str(data)
+
+
+class ClientData(BaseMessage):
+    def __init__(self, data):
+        BaseMessage.__init__(self, MessageType.CLIENT_DATA)
+        self.data = str(data)
+
+
+class ClientDataResponse(BaseMessage):
+    def __init__(self, success, leaderId):
+        BaseMessage.__init__(self, MessageType.CLIENT_DATA_RESPONSE)
+        self.success = bool(success)
+        self.leaderId = str(leaderId)
 
 

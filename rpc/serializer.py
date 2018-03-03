@@ -1,7 +1,7 @@
 import base64
 
 from rpc.messages import BaseMessage, RequestVote, RequestVoteResponse, AppendEntriesResponse, \
-    AppendEntries, LogEntry, MessageType
+    AppendEntries, LogEntry, MessageType, ClientData, ClientDataResponse
 
 
 class ScaleRaftSerializer(object):
@@ -28,6 +28,10 @@ class ScaleRaftSerializer(object):
             obj = AppendEntriesSerializer.deserialize_from_payload(payload)
         elif message_type == MessageType.APPEND_ENTRIES_RESPONSE:
             obj = AppendEntriesResponseSerializer.deserialize_from_payload(payload)
+        elif message_type == MessageType.CLIENT_DATA:
+            obj = ClientDataSerializer.deserialize_from_payload(payload)
+        elif message_type == MessageType.CLIENT_DATA_RESPONSE:
+            obj = ClientDataResponseSerializer.deserialize_from_payload(payload)
 
         assert obj is not None, "Unknown message type: %d" % message_type
         return obj
@@ -43,6 +47,10 @@ class ScaleRaftSerializer(object):
             string = AppendEntriesSerializer.serialize_to_string(obj)
         elif obj.message_type == MessageType.APPEND_ENTRIES_RESPONSE:
             string = AppendEntriesResponseSerializer.serialize_to_string(obj)
+        elif obj.message_type == MessageType.CLIENT_DATA:
+            string = ClientDataSerializer.serialize_to_string(obj)
+        elif obj.message_type == MessageType.CLIENT_DATA_RESPONSE:
+            string = ClientDataResponseSerializer.serialize_to_string(obj)
 
         assert string is not None, "Unknown message type: %d" % obj.message_type
         return string
@@ -104,6 +112,7 @@ class AppendEntriesResponseSerializer(ScaleRaftSerializer):
         (term, success) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
         return AppendEntriesResponse(term, success)
 
+
 class AppendEntriesSerializer(ScaleRaftSerializer):
     LOG_ENTRY_FIELD_SEPARATOR = ","
     LOG_ENTRY_SEPARATOR = ";"
@@ -137,3 +146,24 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
 
         return AppendEntries(term, leader_id, prev_log_index, prev_log_term, leader_commit_index,
                              log_entries)
+
+
+class ClientDataSerializer(ScaleRaftSerializer):
+    @staticmethod
+    def serialize_to_string(obj):
+        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.data)
+
+    @staticmethod
+    def deserialize_from_payload(payload):
+        return ClientData(payload)
+
+
+class ClientDataResponseSerializer(ScaleRaftSerializer):
+    @staticmethod
+    def serialize_to_string(obj):
+        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.success, obj.leaderId)
+
+    @staticmethod
+    def deserialize_from_payload(payload):
+        (success, leaderId) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
+        return ClientDataResponse(success, leaderId)
