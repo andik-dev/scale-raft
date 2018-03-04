@@ -122,8 +122,8 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
             # encode log entries
             encoded_log_entries = []
             for le in obj.logEntries:
-                encoded_le = AppendEntriesSerializer.LOG_ENTRY_FIELD_SEPARATOR.join([str(le.index), str(le.term),
-                                                                                     base64.standard_b64encode(str(le.data))])
+                encoded_le = AppendEntriesSerializer.LOG_ENTRY_FIELD_SEPARATOR\
+                    .join([str(le.index), str(le.term), base64.standard_b64encode(str(le.data))])
                 encoded_log_entries.append(encoded_le)
 
             return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term,
@@ -139,10 +139,11 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
 
         # decode log entries
         log_entries = []
-        for encoded_le in encoded_log_entries.split(AppendEntriesSerializer.LOG_ENTRY_SEPARATOR):
-            (index, term, data) = encoded_le.split(AppendEntriesSerializer.LOG_ENTRY_FIELD_SEPARATOR)
-            data = base64.standard_b64decode(data)
-            log_entries.append(LogEntry(index, term, data))
+        if len(encoded_log_entries) != 0:
+            for encoded_le in encoded_log_entries.split(AppendEntriesSerializer.LOG_ENTRY_SEPARATOR):
+                (index, term, data) = encoded_le.split(AppendEntriesSerializer.LOG_ENTRY_FIELD_SEPARATOR)
+                data = base64.standard_b64decode(data)
+                log_entries.append(LogEntry(index, term, data))
 
         return AppendEntries(term, leader_id, prev_log_index, prev_log_term, leader_commit_index,
                              log_entries)

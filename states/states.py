@@ -1,11 +1,15 @@
+import random
 from threading import Thread
 from time import sleep
 
+from helper import helper
 from persistence import synchronized_log
 from rpc.messages import MessageType, AppendEntriesResponse, RequestVoteResponse, RequestVote, AppendEntries, \
     ClientData, ClientDataResponse
 
 import logging
+
+from scale_raft_config import ScaleRaftConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +38,7 @@ class BaseState(object):
             self.currentTerm = obj.term
             if not isinstance(self.server.state, Follower):
                 self.server.state = Follower(self.server)
-            if obj.message_type == MessageType.REQUEST_VOTE:
-                logger.info("Voting for {}".format(obj.candidateId))
-                self.currentLeaderId = None
-                return False, RequestVoteResponse(self.currentTerm, True)
-            if obj.message_type == MessageType.APPEND_ENTRIES:
-                return False, AppendEntriesResponse(self.currentTerm, False)
+                return False, self.server.state.handle(obj)
 
         if obj.message_type == MessageType.REQUEST_VOTE:
             if obj.term < self.currentTerm:
@@ -54,6 +53,12 @@ class BaseState(object):
 
             return False, RequestVoteResponse(self.currentTerm, False)
 
+        if obj.message_type == MessageType.CLIENT_DATA:
+            if isinstance(self.server.state, Leader):
+                return True, None
+            else:
+                return False, ClientDataResponse(False, self.currentLeaderId)
+
         return True, None  # continue processing
 
 
@@ -67,14 +72,14 @@ class Leader(BaseState):
         self._heartbeat_thread = Thread(target=self.broadcast_heartbeat)
         self.log_entry_send_queue = []
         self.currentLeaderId = self.server.hostname
+        self._heartbeat_thread.start()
 
     def broadcast_heartbeat(self):
-        while isinstance(self.server.state, Leader):
+        while isinstance(self.server.state, Leader) and not self.server.shutdown:
             obj = AppendEntries(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
-            self.server.broadcast(obj)
+            self.server.broadcast(obj, sleep_millis=10)  # sleep 10 millis before sending next heartbeat
             self.log_entry_send_queue = []
-            sleep(0.01)  # 10 millis
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
@@ -127,14 +132,11 @@ class Follower(BaseState):
                 self.log.commitIndex = min(obj.leaderCommitIndex, index_of_last_new_entry)
             return AppendEntriesResponse(self.currentTerm, True)
 
-        elif obj.message_type == MessageType.REQUEST_VOTE:
-            pass
-
         elif obj.message_type == MessageType.REQUEST_VOTE_RESPONSE:
-            pass
+            return None
 
         elif obj.message_type == MessageType.APPEND_ENTRIES_RESPONSE:
-            pass
+            return None
 
         logger.error("Received unexpected message (type=%d) for state Follower" % obj.message_type)
 
@@ -149,7 +151,10 @@ class Candidate(BaseState):
         if len(server.peers) > 0:
             request_vote_rpc = RequestVote(self.currentTerm, server.hostname, self.log.lastAppliedIndex,
                                            self.log.lastLogTerm)
-            self.server.broadcast(request_vote_rpc)
+            random.seed(helper.get_current_time_millis())
+            self.server.broadcast(request_vote_rpc, sleep_millis=random.randint(
+                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
+                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX))
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)

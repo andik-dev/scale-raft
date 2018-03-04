@@ -57,7 +57,6 @@ class RPCHandler(object):
         while not self.__shutdown:
             try:
                 (client_socket, client_address) = self.__server_socket.accept()
-                logger.debug("Handling request from: {}:{}".format(client_address[0], client_address[1]))
                 t = Thread(target=self._handle_new_connection, args=(client_socket,))
                 self.__client_threads.append(t)
                 t.start()
@@ -71,7 +70,6 @@ class RPCHandler(object):
         if resp is not None:
             self._send(client_socket, resp)
         client_socket.close()
-        return string
 
     @staticmethod
     def _send(client_socket, string):

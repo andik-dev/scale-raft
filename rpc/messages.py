@@ -44,7 +44,7 @@ class AppendEntries(BaseMessage):
     def __init__(self, term, leader_id, prev_log_index, prev_log_term, leader_commit_index, log_entries):
         BaseMessage.__init__(self, MessageType.APPEND_ENTRIES)
         self.term = int(term)
-        self.leaderId = int(leader_id)
+        self.leaderId = str(leader_id)
         self.prevLogIndex = int(prev_log_index)
         self.prevLogTerm = int(prev_log_term)
         self.leaderCommitIndex = int(leader_commit_index)
@@ -65,9 +65,9 @@ class ClientData(BaseMessage):
 
 
 class ClientDataResponse(BaseMessage):
-    def __init__(self, success, leaderId):
+    def __init__(self, success, leader_id):
         BaseMessage.__init__(self, MessageType.CLIENT_DATA_RESPONSE)
         self.success = bool(success)
-        self.leaderId = str(leaderId)
+        self.leaderId = str(leader_id)
 
 

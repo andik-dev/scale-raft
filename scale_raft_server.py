@@ -56,7 +56,7 @@ class ScaleRaftServer(object):
 
         self.__send_threads = []
 
-        self.__stop = False
+        self.shutdown = False
 
         self._timeout_thread = Thread(target=self._timeout_thread_worker)
         self._last_valid_rpc = helper.get_current_time_millis()
@@ -75,12 +75,12 @@ class ScaleRaftServer(object):
         self.__stateLock.release()
 
     def _timeout_thread_worker(self):
-        while not self.__stop:
+        while not self.shutdown:
             sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
             if len(self.peers) > 0 and isinstance(self.state, Follower) or isinstance(self.state, Candidate):
                 current_time_millis = helper.get_current_time_millis()
-                if (current_time_millis - self._last_valid_rpc) < ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
-                    logger.info("No valid RPC received, switch to candidate")
+                if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
+                    logger.info("No valid RPC received, switching to Candidate")
                     self.state = Candidate(self)
 
     def _handle_msg(self, string):
@@ -93,7 +93,7 @@ class ScaleRaftServer(object):
         # wait until a new leader is found before denying a client a request
         if isinstance(resp_obj, ClientDataResponse):
             if not resp_obj.success and resp_obj.leaderId is None:
-                while not self.__stop and self.state.currentLeaderId is None:
+                while not self.shutdown and self.state.currentLeaderId is None:
                     logger.error("Received client request but currently no leader, wait 1 second...")
                     sleep(1)
 
@@ -145,7 +145,9 @@ class ScaleRaftServer(object):
         self.__send_threads.append(t)
         t.start()
 
-    def broadcast(self, obj):
+    def broadcast(self, obj, sleep_millis=0):
+        seconds = sleep_millis / 1000.0
+        sleep(seconds)
         # self.send_and_handle_async(self.hostname, ScaleRaftConfig().PORT, obj)
         for peer in self.peers:
             host = peer
@@ -156,7 +158,7 @@ class ScaleRaftServer(object):
             self.send_and_handle_async(host, port, obj)
 
     def stop(self):
-        self.__stop = True
+        self.shutdown = True
         self.__rpc_handler.shutdown()
         for t in self.__send_threads:
             while t.is_alive():
@@ -198,7 +200,9 @@ if __name__ == "__main__":
             server = ScaleRaftServer([])
             logger.info("Connecting to: {}:{}".format(args.host, args.port))
             resp = server.send(args.host, args.port, ClientData("hello world"))
-            print "Success: {}, Leader: {}".format(resp.success, resp.leaderId)
+            if resp is not None:
+                print "Success: {}, Leader: {}".format(resp.success, resp.leaderId)
+            server.stop()
         except Exception as e:
             logger.exception(e)
             exit(1)
