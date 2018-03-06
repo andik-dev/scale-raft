@@ -20,9 +20,18 @@ class BaseState(object):
         self.votedFor = voted_for  # The nodename the server voted for in the current term
         self.log = log  # The log
 
-        self.currentLeaderId = current_leader_id
+        self._currentLeaderId = current_leader_id
         # runtime only
         self.server = server
+
+    @property
+    def currentLeaderId(self):
+        return self._currentLeaderId
+
+    @currentLeaderId.setter
+    def currentLeaderId(self, val):
+        logger.info("Old Leader: {}, new leader: {}".format(self._currentLeaderId, val))
+        self._currentLeaderId = val
 
     def switch_to(self, state_type):
         return state_type(self.server, self.currentTerm, self.votedFor, self.log, self.currentLeaderId)
@@ -33,6 +42,7 @@ class BaseState(object):
 
         if isinstance(obj, ClientData):
             if not isinstance(self.server.state, Leader):
+                logger.info("Received client data. Forwarding client to leader: {}".format(self.currentLeaderId))
                 return False, ClientDataResponse(False, self.currentLeaderId)
             return True, None  # continue processing
 
@@ -90,6 +100,7 @@ class Leader(BaseState):
             return resp
 
         if obj.message_type == MessageType.CLIENT_DATA:
+            logger.info("Received client data.")
             le = self.log.append_client_data(obj.data)
             if len(self.server.peers) == 0:
                 # commit instantly
@@ -98,8 +109,8 @@ class Leader(BaseState):
                 # Queue for sending
                 self.log_entry_send_queue.append(le)
             # FIXME add timeout to avoid looping forever
-            while self.log.commitIndex != le.index:
-                pass
+            #while self.log.commitIndex != le.index:
+            #    pass
             return ClientDataResponse(True, self.currentLeaderId)
 
 
