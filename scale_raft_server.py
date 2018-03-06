@@ -77,7 +77,7 @@ class ScaleRaftServer(object):
     def _timeout_thread_worker(self):
         while not self.shutdown:
             sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
-            if len(self.peers) > 0 and isinstance(self.state, Follower) or isinstance(self.state, Candidate):
+            if len(self.peers) > 0 and (isinstance(self.state, Follower) or isinstance(self.state, Candidate)):
                 current_time_millis = helper.get_current_time_millis()
                 if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
                     logger.info("No valid RPC received, switching to Candidate")

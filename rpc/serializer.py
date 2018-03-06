@@ -1,6 +1,6 @@
 import base64
 
-from rpc.messages import BaseMessage, RequestVote, RequestVoteResponse, AppendEntriesResponse, \
+from messages import BaseMessage, RequestVote, RequestVoteResponse, AppendEntriesResponse, \
     AppendEntries, LogEntry, MessageType, ClientData, ClientDataResponse
 
 
