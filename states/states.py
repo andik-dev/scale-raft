@@ -30,7 +30,7 @@ class BaseState(object):
 
     @currentLeaderId.setter
     def currentLeaderId(self, val):
-        logger.info("Old Leader: {}, new leader: {}".format(self._currentLeaderId, val))
+        logger.info("{}: Old Leader: {}, new leader: {}".format(self.server.hostname, self._currentLeaderId, val))
         self._currentLeaderId = val
 
     def switch_to(self, state_type):
@@ -42,7 +42,7 @@ class BaseState(object):
 
         if isinstance(obj, ClientData):
             if not isinstance(self.server.state, Leader):
-                logger.info("Received client data. Forwarding client to leader: {}".format(self.currentLeaderId))
+                logger.info("{}: Received client data but not a leader. Forwarding client to leader: {}".format(self.server.hostname, self.currentLeaderId))
                 return False, ClientDataResponse(False, self.currentLeaderId)
             return True, None  # continue processing
 
@@ -59,8 +59,11 @@ class BaseState(object):
             if (self.votedFor is None or self.votedFor == obj.candidateId) \
                     and obj.term >= self.currentTerm \
                     and obj.lastLogIndex >= self.log.lastAppliedIndex:
-                logger.info("Voting for {}".format(obj.candidateId))
+                logger.info("{}: Voting for {}".format(self.server.hostname, obj.candidateId))
                 self.currentLeaderId = None
+                self.votedFor = obj.candidateId
+                if not isinstance(self.server.state, Follower):
+                    self.server.state = self.server.state.switch_to(Follower)
                 return False, RequestVoteResponse(self.currentTerm, True)
 
             return False, RequestVoteResponse(self.currentTerm, False)
@@ -117,18 +120,13 @@ class Leader(BaseState):
 class Follower(BaseState):
     def __init__(self, server, current_term, voted_for, log, current_leader_id):
         BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
-        self.leaderId = 0
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
         if not cont:
             return resp
 
-        BaseState.handle(self, obj)
-
         if obj.message_type == MessageType.APPEND_ENTRIES:
-            self.leaderId = obj.leaderId
-
             # Local log has higher term/is more current
             if obj.term < self.currentTerm:
                 return AppendEntriesResponse(self.currentTerm, False)
@@ -136,6 +134,10 @@ class Follower(BaseState):
             # The local log has no entry at prevLogIndex, prevLogTerm
             if self.log.exists(obj.prevLogIndex, obj.prevLogTerm):
                 return AppendEntriesResponse(self.currentTerm, False)
+
+            if self.currentLeaderId != obj.leaderId:
+                logger.info("{}: New leader: {}".format(self.server.hostname, obj.leaderId))
+                self.currentLeaderId = obj.leaderId
 
             # Append the new entries
             index_of_last_new_entry = self.log.append_entries(obj.logEntries)
@@ -176,7 +178,6 @@ class Candidate(BaseState):
         if not cont:
             return resp
 
-        BaseState.handle(self, obj)
         if obj.message_type == MessageType.REQUEST_VOTE_RESPONSE:
             if obj.voteGranted is True \
                     and obj.term >= self.currentTerm:
@@ -187,10 +188,9 @@ class Candidate(BaseState):
 
         if obj.message_type == MessageType.APPEND_ENTRIES:
             if obj.term >= self.currentTerm:
-                self.currentLeaderId = obj.leaderId
                 self.server.state = self.server.state.switch_to(Follower)
-                self.server.state.handle(obj)
-            return
+                return self.server.state.handle(obj)
+            return AppendEntriesResponse(False, self.currentTerm)
 
         logger.error("Received unexpected message (type=%d) for state Candidate" % obj.message_type)
 

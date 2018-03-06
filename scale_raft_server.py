@@ -20,6 +20,16 @@ log_format = '%(asctime)s - %(levelname)s - %(module)s - %(threadName)s - %(mess
 logging.basicConfig(format=log_format, level=ScaleRaftConfig().LOG_LEVEL)
 
 
+class ServernameFilter(logging.Filter):
+    def __init__(self, servername):
+        logging.Filter.__init__(self)
+        self.servername = servername
+
+    def filter(self, record):
+        record.servername = self.servername
+        return True
+
+
 class ZLibCompressor(object):
     def compress(self, data):
         return zlib.compress(data)
@@ -43,6 +53,8 @@ class ScaleRaftServer(object):
         self.peers = peers
 
         self.hostname = hostname
+        logger.addFilter(ServernameFilter(self.hostname))
+
         self.port = port
 
         self.__stateLock = threading.RLock()
@@ -70,18 +82,18 @@ class ScaleRaftServer(object):
     @state.setter
     def state(self, state):
         self.__stateLock.acquire()
-        logger.info("Switching state from {} to {}".format(self._state.__class__.__name__,
+        logger.info("{}: Switching state from {} to {}".format(self.hostname, self._state.__class__.__name__,
                                                            state.__class__.__name__))
         self._state = state
         self.__stateLock.release()
 
     def _timeout_thread_worker(self):
         while not self.shutdown:
-            sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
-            if len(self.peers) > 0 and (isinstance(self.state, Follower) or isinstance(self.state, Candidate)):
+            #sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
+            if len(self.peers) > 0 and not isinstance(self.state, Leader):
                 current_time_millis = helper.get_current_time_millis()
                 if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
-                    logger.info("No valid RPC received, switching to Candidate")
+                    logger.info("{}: No valid RPC received, switching to Candidate".format(self.hostname))
                     self.state = self.state.switch_to(Candidate)
 
     def _handle_msg(self, string):

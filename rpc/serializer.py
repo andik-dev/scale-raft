@@ -167,4 +167,8 @@ class ClientDataResponseSerializer(ScaleRaftSerializer):
     @staticmethod
     def deserialize_from_payload(payload):
         (success, leaderId) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
+        if success == "True":
+            success = True
+        else:
+            success = False
         return ClientDataResponse(success, leaderId)
