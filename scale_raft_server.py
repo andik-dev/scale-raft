@@ -7,6 +7,7 @@ import zlib
 
 
 from helper import helper
+from persistence import synchronized_log
 from rpc.messages import ClientData, ClientDataResponse
 from rpc.rpc_handler import RPCHandler
 from rpc.serializer import ScaleRaftSerializer
@@ -81,7 +82,7 @@ class ScaleRaftServer(object):
                 current_time_millis = helper.get_current_time_millis()
                 if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
                     logger.info("No valid RPC received, switching to Candidate")
-                    self.state = Candidate(self)
+                    self.state = self.state.switch_to(Candidate)
 
     def _handle_msg(self, string):
         obj = self._deserialize(string)
@@ -123,10 +124,10 @@ class ScaleRaftServer(object):
         logger.info("Peers: {}".format(self.peers))
         if len(self.peers) == 0:
             logger.info("No peers configured, starting as Leader")
-            self._state = Leader(self)
+            self._state = Leader(self, 0, None, synchronized_log.SynchronizedLog(), None)
         else:
             logger.info("{} peers configured, starting as Follower".format(len(self.peers)))
-            self._state = Follower(self)
+            self._state = Follower(self, 0, None, synchronized_log.SynchronizedLog(), None)
 
         self.__rpc_handler.startup()
 
@@ -145,10 +146,7 @@ class ScaleRaftServer(object):
         self.__send_threads.append(t)
         t.start()
 
-    def broadcast(self, obj, sleep_millis=0):
-        seconds = sleep_millis / 1000.0
-        sleep(seconds)
-        # self.send_and_handle_async(self.hostname, ScaleRaftConfig().PORT, obj)
+    def broadcast(self, obj):
         for peer in self.peers:
             host = peer
             port = int(ScaleRaftConfig().PORT)
@@ -208,9 +206,9 @@ if __name__ == "__main__":
             exit(1)
 
     if args.test or (not args.client and not args.server):
-        server1 = ScaleRaftServer([("localhost", 48001), ("andi-vbox", 48002)], hostname="127.0.0.1", port=48000)
-        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="andi-vbox", port=48002)
-        server3 = ScaleRaftServer([("andi-vbox", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
+        server1 = ScaleRaftServer([("localhost", 48001), ("gpfsHost", 48002)], hostname="127.0.0.1", port=48000)
+        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="gpfsHost", port=48002)
+        server3 = ScaleRaftServer([("gpfsHost", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
         server1.start()
         server2.start()
         server3.start()

@@ -3,7 +3,6 @@ from threading import Thread
 from time import sleep
 
 from helper import helper
-from persistence import synchronized_log
 from rpc.messages import MessageType, AppendEntriesResponse, RequestVoteResponse, RequestVote, AppendEntries, \
     ClientData, ClientDataResponse
 
@@ -15,15 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class BaseState(object):
-    def __init__(self, server):
+    def __init__(self, server, current_term, voted_for, log, current_leader_id):
         # persistent
-        self.currentTerm = 0  # latest term server has seen, set to 0 on boot
-        self.votedFor = None  # The nodename the server voted for in the current term
-        self.log = synchronized_log.SynchronizedLog()  # The log
+        self.currentTerm = current_term  # latest term server has seen, set to 0 on boot
+        self.votedFor = voted_for  # The nodename the server voted for in the current term
+        self.log = log  # The log
 
-        self.currentLeaderId = None
+        self.currentLeaderId = current_leader_id
         # runtime only
         self.server = server
+
+    def switch_to(self, state_type):
+        return state_type(self.server, self.currentTerm, self.votedFor, self.log, self.currentLeaderId)
 
     def handle(self, obj):
         if obj is None:
@@ -37,7 +39,7 @@ class BaseState(object):
         if self.currentTerm < obj.term:
             self.currentTerm = obj.term
             if not isinstance(self.server.state, Follower):
-                self.server.state = Follower(self.server)
+                self.server.state = self.server.state.switch_to(Follower)
                 return False, self.server.state.handle(obj)
 
         if obj.message_type == MessageType.REQUEST_VOTE:
@@ -63,8 +65,8 @@ class BaseState(object):
 
 
 class Leader(BaseState):
-    def __init__(self, server):
-        BaseState.__init__(self, server)
+    def __init__(self, server, current_term, voted_for, log, current_leader_id):
+        BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         # map of server -> next index, initialized to leader last log index + 1
         self.nextIndex = {hostname: self.log.lastAppliedIndex for hostname in server.peers}
         # map of server -> highest replicated log entry index
@@ -76,9 +78,10 @@ class Leader(BaseState):
 
     def broadcast_heartbeat(self):
         while isinstance(self.server.state, Leader) and not self.server.shutdown:
+            sleep(0.01)  # sleep 10 millis before sending next heartbeat
             obj = AppendEntries(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
-            self.server.broadcast(obj, sleep_millis=10)  # sleep 10 millis before sending next heartbeat
+            self.server.broadcast(obj)
             self.log_entry_send_queue = []
 
     def handle(self, obj):
@@ -101,8 +104,8 @@ class Leader(BaseState):
 
 
 class Follower(BaseState):
-    def __init__(self, server):
-        BaseState.__init__(self, server)
+    def __init__(self, server, current_term, voted_for, log, current_leader_id):
+        BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         self.leaderId = 0
 
     def handle(self, obj):
@@ -142,8 +145,8 @@ class Follower(BaseState):
 
 
 class Candidate(BaseState):
-    def __init__(self, server):
-        BaseState.__init__(self, server)
+    def __init__(self, server, current_term, voted_for, log, current_leader_id):
+        BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         # start election
         self.currentTerm += 1
         self.votedFor = server.hostname
@@ -152,9 +155,10 @@ class Candidate(BaseState):
             request_vote_rpc = RequestVote(self.currentTerm, server.hostname, self.log.lastAppliedIndex,
                                            self.log.lastLogTerm)
             random.seed(helper.get_current_time_millis())
-            self.server.broadcast(request_vote_rpc, sleep_millis=random.randint(
+            sleep(random.randint(
                 ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
-                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX))
+                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0)
+            self.server.broadcast(request_vote_rpc)
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
@@ -167,13 +171,13 @@ class Candidate(BaseState):
                     and obj.term >= self.currentTerm:
                 self.vote_counter += 1
                 if self.vote_counter > (len(self.server.peers) / 2):
-                    self.server.state = Leader(self.server)
+                    self.server.state = self.server.state.switch_to(Leader)
             return
 
         if obj.message_type == MessageType.APPEND_ENTRIES:
             if obj.term >= self.currentTerm:
                 self.currentLeaderId = obj.leaderId
-                self.server.state = Follower(self.server)
+                self.server.state = self.server.state.switch_to(Follower)
                 self.server.state.handle(obj)
             return
 
