@@ -96,7 +96,7 @@ class Leader(BaseState):
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
             self.server.broadcast(obj)
             self.log_entry_send_queue = []
-            sleep(0.01)  # sleep before sending next heartbeat
+            sleep(ScaleRaftConfig().HEARTBEAT_INTERVAL_IN_MILLIS / 1000.0)  # sleep before sending next heartbeat
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
