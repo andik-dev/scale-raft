@@ -64,6 +64,7 @@ class BaseState(object):
                 self.votedFor = obj.candidateId
                 if not isinstance(self.server.state, Follower):
                     self.server.state = self.server.state.switch_to(Follower)
+                logger.info("{}: Voted for {}".format(self.server.hostname, obj.candidateId))
                 return False, RequestVoteResponse(self.currentTerm, True)
 
             return False, RequestVoteResponse(self.currentTerm, False)
@@ -91,11 +92,11 @@ class Leader(BaseState):
 
     def broadcast_heartbeat(self):
         while isinstance(self.server.state, Leader) and not self.server.shutdown:
-            sleep(0.01)  # sleep 10 millis before sending next heartbeat
             obj = AppendEntries(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
             self.server.broadcast(obj)
             self.log_entry_send_queue = []
+            sleep(0.01)  # sleep before sending next heartbeat
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
@@ -148,12 +149,6 @@ class Follower(BaseState):
                 self.log.commitIndex = min(obj.leaderCommitIndex, index_of_last_new_entry)
             return AppendEntriesResponse(self.currentTerm, True)
 
-        elif obj.message_type == MessageType.REQUEST_VOTE_RESPONSE:
-            return None
-
-        elif obj.message_type == MessageType.APPEND_ENTRIES_RESPONSE:
-            return None
-
         logger.error("Received unexpected message (type=%d) for state Follower" % obj.message_type)
 
 
@@ -161,17 +156,30 @@ class Candidate(BaseState):
     def __init__(self, server, current_term, voted_for, log, current_leader_id):
         BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         # start election
-        self.currentTerm += 1
-        self.votedFor = server.hostname
-        self.vote_counter = 1
-        if len(server.peers) > 0:
-            request_vote_rpc = RequestVote(self.currentTerm, server.hostname, self.log.lastAppliedIndex,
-                                           self.log.lastLogTerm)
-            random.seed(helper.get_current_time_millis())
-            sleep(random.randint(
-                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
-                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0)
-            self.server.broadcast(request_vote_rpc)
+        self._start_election_thread = Thread(target=self._start_election)
+        self.votedFor = None
+        self.voteCounter = 0
+        self._start_election_thread.start()
+
+    def _start_election(self):
+        # Sleep a random time before starting a vote
+        random.seed(helper.get_current_time_nanos())
+        sleep_seconds = random.randint(
+            ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
+            ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
+        logger.info("{}: Sleeping {} seconds before starting a vote".format(self.server.hostname, sleep_seconds))
+        sleep(sleep_seconds)
+
+        # check if votedFor is still None
+        if self.server.state.votedFor is None:
+            logger.info("{}: Starting vote...".format(self.server.hostname))
+            self.currentTerm += 1
+            self.votedFor = self.server.hostname
+            self.voteCounter = 1
+            if len(self.server.peers) > 0:
+                request_vote_rpc = RequestVote(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
+                                               self.log.lastLogTerm)
+                self.server.broadcast(request_vote_rpc)
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
@@ -179,11 +187,13 @@ class Candidate(BaseState):
             return resp
 
         if obj.message_type == MessageType.REQUEST_VOTE_RESPONSE:
-            if obj.voteGranted is True \
-                    and obj.term >= self.currentTerm:
-                self.vote_counter += 1
-                if self.vote_counter > (len(self.server.peers) / 2):
+            if obj.voteGranted is True and obj.term == self.currentTerm and self.votedFor == self.server.hostname:
+                self.voteCounter += 1
+                logger.info("{}: Received {} votes".format(self.server.hostname, self.voteCounter))
+                if self.voteCounter > (len(self.server.peers) / 2) and not isinstance(self.server.state, Leader):
+                    logger.info("{}: Received {} votes. Switching to Leader".format(self.server.hostname, self.voteCounter))
                     self.server.state = self.server.state.switch_to(Leader)
+                    return
             return
 
         if obj.message_type == MessageType.APPEND_ENTRIES:

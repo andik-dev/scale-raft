@@ -4,7 +4,7 @@ import argparse
 import logging
 from time import sleep
 import zlib
-
+from multiprocessing.pool import ThreadPool
 
 from helper import helper
 from persistence import synchronized_log
@@ -57,8 +57,6 @@ class ScaleRaftServer(object):
 
         self.port = port
 
-        self.__stateLock = threading.RLock()
-
         self._state = None
 
         self.__compressor = compressor()
@@ -71,9 +69,11 @@ class ScaleRaftServer(object):
 
         self.shutdown = False
 
-        self._timeout_thread = Thread(target=self._timeout_thread_worker)
+        self._timeout_watcher_thread = Thread(target=self._timeout_thread_watcher)
         self._last_valid_rpc = helper.get_current_time_millis()
-        self._timeout_thread.start()
+        self._timeout_watcher_thread.start()
+
+        self._message_lock = threading.Lock()
 
     @property
     def state(self):
@@ -81,27 +81,30 @@ class ScaleRaftServer(object):
 
     @state.setter
     def state(self, state):
-        self.__stateLock.acquire()
         logger.info("{}: Switching state from {} to {}".format(self.hostname, self._state.__class__.__name__,
                                                            state.__class__.__name__))
         self._state = state
-        self.__stateLock.release()
 
-    def _timeout_thread_worker(self):
+    def _timeout_thread_watcher(self):
         while not self.shutdown:
-            #sleep(ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN / 2 / 1000)
-            if len(self.peers) > 0 and not isinstance(self.state, Leader):
+            sleep(0.01)  # sleep 10 millis
+            if len(self.peers) > 0 and not isinstance(self.state, Candidate):
                 current_time_millis = helper.get_current_time_millis()
                 if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
-                    logger.info("{}: No valid RPC received, switching to Candidate".format(self.hostname))
+                    logger.info("{}: No valid RPC received in the last {} milliseconds, switching to Candidate"
+                                .format(self.hostname, (current_time_millis - self._last_valid_rpc)))
                     self.state = self.state.switch_to(Candidate)
 
     def _handle_msg(self, string):
-        obj = self._deserialize(string)
-
         self._last_valid_rpc = helper.get_current_time_millis()
 
+        obj = self._deserialize(string)
+
+        self._message_lock.acquire()
+
         resp_obj = self.state.handle(obj)
+
+        self._message_lock.release()
 
         # wait until a new leader is found before denying a client a request
         if isinstance(resp_obj, ClientDataResponse):
@@ -113,6 +116,7 @@ class ScaleRaftServer(object):
         string = None
         if resp_obj is not None:
             string = self._serialize(resp_obj)
+
         return string
 
     def _serialize(self, obj):
@@ -151,7 +155,12 @@ class ScaleRaftServer(object):
 
     def _send_and_handle(self, hostname, port, obj):
         serialized_string = self._serialize(obj)
-        self.state.handle(self._deserialize(self.__rpc_handler.send(hostname, port, serialized_string)))
+        send_time = helper.get_current_time_millis()
+        resp_string = self.__rpc_handler.send(hostname, port, serialized_string)
+        resp_time = helper.get_current_time_millis()
+        if resp_time - send_time > 50:
+            logger.error("{}: It took more than 100ms to send a message to and receive a response from: {}:{}".format(self.hostname, hostname, port))
+        self._handle_msg(resp_string)
 
     def send_and_handle_async(self, hostname, port, obj):
         t = Thread(target=self._send_and_handle, args=(hostname, port, obj))
@@ -173,7 +182,7 @@ class ScaleRaftServer(object):
         for t in self.__send_threads:
             while t.is_alive():
                 pass
-        while self._timeout_thread.is_alive():
+        while self._timeout_watcher_thread.is_alive():
             pass
         logger.info("Server stopped successfully.")
 

@@ -14,3 +14,6 @@ def synchronized(lock):
 
 def get_current_time_millis():
     return int(round(time.time() * 1000))
+
+def get_current_time_nanos():
+    return int(round(time.time() * 1000 * 1000))

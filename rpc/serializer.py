@@ -98,6 +98,10 @@ class RequestVoteResponseSerializer(ScaleRaftSerializer):
     @staticmethod
     def deserialize_from_payload(payload):
         (term, vote_granted) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 1)
+        if vote_granted == "True":
+            vote_granted = True
+        else:
+            vote_granted = False
         return RequestVoteResponse(term, vote_granted)
 
 
