@@ -1,10 +1,10 @@
-import threading
-from threading import Thread
 import argparse
 import logging
-from time import sleep
+import random
+import threading
 import zlib
-from multiprocessing.pool import ThreadPool
+from threading import Thread
+from time import sleep
 
 from helper import helper
 from persistence import synchronized_log
@@ -46,6 +46,14 @@ class NoOpEncryptor(object):
         return data
 
 
+class ScaleRaftThread(Thread):
+    def __init__(self, hostname, group=None, target=None, name=None,
+                 args=(), kwargs=None):
+        super(ScaleRaftThread, self).__init__(group, target, name,
+                        args, kwargs)
+        self.name = hostname + " - " + self.name
+
+
 class ScaleRaftServer(object):
     def __init__(self, peers, hostname=ScaleRaftConfig().HOSTNAME, port=ScaleRaftConfig().PORT,
                  compressor=ZLibCompressor, encryptor=NoOpEncryptor, rpc_handler=RPCHandler,
@@ -69,7 +77,7 @@ class ScaleRaftServer(object):
 
         self.shutdown = False
 
-        self._timeout_watcher_thread = Thread(target=self._timeout_thread_watcher)
+        self._timeout_watcher_thread = ScaleRaftThread(self.hostname, target=self._timeout_thread_watcher)
         self._last_valid_rpc = helper.get_current_time_millis()
         self._timeout_watcher_thread.start()
 
@@ -82,13 +90,19 @@ class ScaleRaftServer(object):
     @state.setter
     def state(self, state):
         logger.info("{}: Switching state from {} to {}".format(self.hostname, self._state.__class__.__name__,
-                                                           state.__class__.__name__))
+                                                               state.__class__.__name__))
         self._state = state
 
     def _timeout_thread_watcher(self):
         while not self.shutdown:
-            sleep(0.01)  # sleep 10 millis
-            if len(self.peers) > 0 and not isinstance(self.state, Candidate):
+            # Sleep a random time before starting a vote
+            random.seed(helper.get_current_time_nanos())
+            sleep_seconds = random.randint(
+                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
+                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
+            logger.info("{}: Sleeping {} seconds before starting a vote".format(self.hostname, sleep_seconds))
+            sleep(sleep_seconds)
+            if len(self.peers) > 0 and not isinstance(self.state, Leader) and not isinstance(self.state, Candidate):
                 current_time_millis = helper.get_current_time_millis()
                 if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
                     logger.info("{}: No valid RPC received in the last {} milliseconds, switching to Candidate"
@@ -154,16 +168,18 @@ class ScaleRaftServer(object):
         return self._deserialize(self.__rpc_handler.send(hostname, port, serialized_string))
 
     def _send_and_handle(self, hostname, port, obj):
+        logger.info("Sending message to {}".format(hostname))
         serialized_string = self._serialize(obj)
         send_time = helper.get_current_time_millis()
         resp_string = self.__rpc_handler.send(hostname, port, serialized_string)
         resp_time = helper.get_current_time_millis()
         if resp_time - send_time > 50:
-            logger.error("{}: It took more than 100ms to send a message to and receive a response from: {}:{}".format(self.hostname, hostname, port))
+            logger.error("{}: It took more than 100ms to send a message to and receive a response from: {}:{}".format(
+                self.hostname, hostname, port))
         self._handle_msg(resp_string)
 
     def send_and_handle_async(self, hostname, port, obj):
-        t = Thread(target=self._send_and_handle, args=(hostname, port, obj))
+        t = ScaleRaftThread(self.hostname, target=self._send_and_handle, args=(hostname, port, obj))
         self.__send_threads.append(t)
         t.start()
 
@@ -227,17 +243,9 @@ if __name__ == "__main__":
             exit(1)
 
     if args.test or (not args.client and not args.server):
-        server1 = ScaleRaftServer([("localhost", 48001), ("gpfsHost", 48002)], hostname="127.0.0.1", port=48000)
-        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="gpfsHost", port=48002)
-        server3 = ScaleRaftServer([("gpfsHost", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
+        server1 = ScaleRaftServer([("localhost", 48001), ("andi-vbox", 48002)], hostname="127.0.0.1", port=48000)
+        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="andi-vbox", port=48002)
+        server3 = ScaleRaftServer([("andi-vbox", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
         server1.start()
         server2.start()
         server3.start()
-
-
-
-
-
-
-
-

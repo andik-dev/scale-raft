@@ -1,13 +1,8 @@
-import random
-from threading import Thread
+import logging
 from time import sleep
 
-from helper import helper
 from rpc.messages import MessageType, AppendEntriesResponse, RequestVoteResponse, RequestVote, AppendEntries, \
     ClientData, ClientDataResponse
-
-import logging
-
 from scale_raft_config import ScaleRaftConfig
 
 logger = logging.getLogger(__name__)
@@ -85,13 +80,15 @@ class Leader(BaseState):
         self.nextIndex = {hostname: self.log.lastAppliedIndex for hostname in server.peers}
         # map of server -> highest replicated log entry index
         self.matchIndex = {hostname: 0 for hostname in server.peers}
-        self._heartbeat_thread = Thread(target=self.broadcast_heartbeat)
+        from scale_raft_server import ScaleRaftThread
+        self._heartbeat_thread = ScaleRaftThread(self.server.hostname, target=self.broadcast_heartbeat)
         self.log_entry_send_queue = []
         self.currentLeaderId = self.server.hostname
         self._heartbeat_thread.start()
 
     def broadcast_heartbeat(self):
-        while isinstance(self.server.state, Leader) and not self.server.shutdown:
+        # while isinstance(self.server.state, Leader) and not self.server.shutdown:
+        while not self.server.shutdown:
             obj = AppendEntries(self.currentTerm, self.server.hostname, self.log.lastAppliedIndex,
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
             self.server.broadcast(obj)
@@ -156,19 +153,13 @@ class Candidate(BaseState):
     def __init__(self, server, current_term, voted_for, log, current_leader_id):
         BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         # start election
-        self._start_election_thread = Thread(target=self._start_election)
+        from scale_raft_server import ScaleRaftThread
+        self._start_election_thread = ScaleRaftThread(self.server.hostname, target=self._start_election)
         self.votedFor = None
         self.voteCounter = 0
         self._start_election_thread.start()
 
     def _start_election(self):
-        # Sleep a random time before starting a vote
-        random.seed(helper.get_current_time_nanos())
-        sleep_seconds = random.randint(
-            ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
-            ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
-        logger.info("{}: Sleeping {} seconds before starting a vote".format(self.server.hostname, sleep_seconds))
-        sleep(sleep_seconds)
 
         # check if votedFor is still None
         if self.server.state.votedFor is None:
