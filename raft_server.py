@@ -11,13 +11,13 @@ from persistence import synchronized_log
 from rpc.messages import ClientData, ClientDataResponse
 from rpc.rpc_handler import RPCHandler
 from rpc.serializer import ScaleRaftSerializer
-from scale_raft_config import ScaleRaftConfig
+from raft_config import RaftConfig
 from states.states import Follower, Candidate, Leader
 
 logger = logging.getLogger(__name__)
 log_format = '%(asctime)s - %(levelname)s - %(module)s - %(threadName)s - %(message)s'
 # logging.basicConfig(format=logFormat, filename=ScaleRaftConfig().LOG_FILE, level=ScaleRaftConfig().LOG_LEVEL)
-logging.basicConfig(format=log_format, level=ScaleRaftConfig().LOG_LEVEL)
+logging.basicConfig(format=log_format, level=RaftConfig().LOG_LEVEL)
 
 
 class ServernameFilter(logging.Filter):
@@ -46,16 +46,16 @@ class NoOpEncryptor(object):
         return data
 
 
-class ScaleRaftThread(Thread):
+class RaftThread(Thread):
     def __init__(self, hostname, group=None, target=None, name=None,
                  args=(), kwargs=None):
-        super(ScaleRaftThread, self).__init__(group, target, name,
+        super(RaftThread, self).__init__(group, target, name,
                         args, kwargs)
         self.name = hostname + " - " + self.name
 
 
-class ScaleRaftServer(object):
-    def __init__(self, peers, hostname=ScaleRaftConfig().HOSTNAME, port=ScaleRaftConfig().PORT,
+class RaftServer(object):
+    def __init__(self, peers, hostname=RaftConfig().HOSTNAME, port=RaftConfig().PORT,
                  compressor=ZLibCompressor, encryptor=NoOpEncryptor, rpc_handler=RPCHandler,
                  serializer=ScaleRaftSerializer):
         self.peers = peers
@@ -77,7 +77,7 @@ class ScaleRaftServer(object):
 
         self.shutdown = False
 
-        self._timeout_watcher_thread = ScaleRaftThread(self.hostname, target=self._timeout_thread_watcher)
+        self._timeout_watcher_thread = RaftThread(self.hostname, target=self._timeout_thread_watcher)
         self._last_valid_rpc = helper.get_current_time_millis()
         self._timeout_watcher_thread.start()
 
@@ -98,13 +98,13 @@ class ScaleRaftServer(object):
             # Sleep a random time before starting a vote
             random.seed(helper.get_current_time_nanos())
             sleep_seconds = random.randint(
-                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
-                ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
+                RaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
+                RaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
             logger.info("{}: Sleeping {} seconds before starting a vote".format(self.hostname, sleep_seconds))
             sleep(sleep_seconds)
             if len(self.peers) > 0 and not isinstance(self.state, Leader) and not isinstance(self.state, Candidate):
                 current_time_millis = helper.get_current_time_millis()
-                if (current_time_millis - self._last_valid_rpc) > ScaleRaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
+                if (current_time_millis - self._last_valid_rpc) > RaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN:
                     logger.info("{}: No valid RPC received in the last {} milliseconds, switching to Candidate"
                                 .format(self.hostname, (current_time_millis - self._last_valid_rpc)))
                     self.state = self.state.switch_to(Candidate)
@@ -179,14 +179,14 @@ class ScaleRaftServer(object):
         self._handle_msg(resp_string)
 
     def send_and_handle_async(self, hostname, port, obj):
-        t = ScaleRaftThread(self.hostname, target=self._send_and_handle, args=(hostname, port, obj))
+        t = RaftThread(self.hostname, target=self._send_and_handle, args=(hostname, port, obj))
         self.__send_threads.append(t)
         t.start()
 
     def broadcast(self, obj):
         for peer in self.peers:
             host = peer
-            port = int(ScaleRaftConfig().PORT)
+            port = int(RaftConfig().PORT)
             if isinstance(peer, tuple):
                 host = peer[0]
                 port = int(peer[1])
@@ -207,10 +207,10 @@ if __name__ == "__main__":
     argparse = argparse.ArgumentParser(description="Start a new server or send a message as a client")
     argparse.add_argument("--test", action="store_true")
     argparse.add_argument("--server", action="store_true")
-    argparse.add_argument("--peers", type=str, default=ScaleRaftConfig().PORT)
+    argparse.add_argument("--peers", type=str, default=RaftConfig().PORT)
     argparse.add_argument("--client", action="store_true")
-    argparse.add_argument("--host", type=str, default=ScaleRaftConfig().HOSTNAME)
-    argparse.add_argument("--port", type=int, default=ScaleRaftConfig().PORT)
+    argparse.add_argument("--host", type=str, default=RaftConfig().HOSTNAME)
+    argparse.add_argument("--port", type=int, default=RaftConfig().PORT)
     args = argparse.parse_args()
 
     # python scale_raft_server.py --server --host andi-vbox --port 48000 --peers localhost:48001,127.0.0.1:48002
@@ -222,7 +222,7 @@ if __name__ == "__main__":
             splitted_peer = peer.split(":")
             peer_tuples.append((splitted_peer[0], splitted_peer[1]))
 
-        server = ScaleRaftServer(peer_tuples, hostname=args.host, port=args.port)
+        server = RaftServer(peer_tuples, hostname=args.host, port=args.port)
         try:
             server.start()
         except Exception as e:
@@ -232,20 +232,20 @@ if __name__ == "__main__":
 
     if args.client:
         try:
-            server = ScaleRaftServer([])
+            server = RaftServer([])
             logger.info("Connecting to: {}:{}".format(args.host, args.port))
             resp = server.send(args.host, args.port, ClientData("hello world"))
             if resp is not None:
-                print "Success: {}, Leader: {}".format(resp.success, resp.leaderId)
+                logger.info("Success: {}, Leader: {}".format(resp.success, resp.leaderId))
             server.stop()
         except Exception as e:
             logger.exception(e)
             exit(1)
 
     if args.test or (not args.client and not args.server):
-        server1 = ScaleRaftServer([("localhost", 48001), ("andi-vbox", 48002)], hostname="127.0.0.1", port=48000)
-        server2 = ScaleRaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="andi-vbox", port=48002)
-        server3 = ScaleRaftServer([("andi-vbox", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
+        server1 = RaftServer([("localhost", 48001), ("andi-vbox", 48002)], hostname="127.0.0.1", port=48000)
+        server2 = RaftServer([("127.0.0.1", 48000), ("localhost", 48001)], hostname="andi-vbox", port=48002)
+        server3 = RaftServer([("andi-vbox", 48002), ("127.0.0.1", 48000)], hostname="localhost", port=48001)
         server1.start()
         server2.start()
         server3.start()

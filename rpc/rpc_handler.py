@@ -3,7 +3,7 @@ import socket
 from threading import Thread
 from time import sleep
 
-from scale_raft_config import ScaleRaftConfig
+from raft_config import RaftConfig
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +16,13 @@ class RPCHandler(object):
         self.__shutdown = False
         self.__client_threads = []
         self.__server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__server_socket.settimeout(ScaleRaftConfig().SERVER_SOCKET_TIMEOUT_IN_SECONDS)
+        self.__server_socket.settimeout(RaftConfig().SERVER_SOCKET_TIMEOUT_IN_SECONDS)
         self.__message_loop_thread = Thread(target=self._message_loop)
 
     def startup(self):
         self.__server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.__server_socket.bind((self.__hostname, self.__port))
-        self.__server_socket.listen(ScaleRaftConfig().MAX_CONNECTIONS)
+        self.__server_socket.listen(RaftConfig().MAX_CONNECTIONS)
         self.__message_loop_thread.start()
 
     def shutdown(self):
@@ -41,7 +41,7 @@ class RPCHandler(object):
         while not sent and not self.__shutdown:
             try:
                 cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                cs.settimeout(ScaleRaftConfig().CLIENT_SOCKET_TIMEOUT_IN_SECONDS)
+                cs.settimeout(RaftConfig().CLIENT_SOCKET_TIMEOUT_IN_SECONDS)
                 cs.connect((hostname, port))
 
                 self._send(cs, string)

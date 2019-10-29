@@ -1,6 +1,6 @@
 import socket
 
-class ScaleRaftConfig(object):
+class RaftConfig(object):
     # Global properties
     HOSTNAME = socket.gethostname()
     PORT = 47800

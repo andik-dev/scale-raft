@@ -3,7 +3,7 @@ from time import sleep
 
 from rpc.messages import MessageType, AppendEntriesResponse, RequestVoteResponse, RequestVote, AppendEntries, \
     ClientData, ClientDataResponse
-from scale_raft_config import ScaleRaftConfig
+from raft_config import RaftConfig
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +80,8 @@ class Leader(BaseState):
         self.nextIndex = {hostname: self.log.lastAppliedIndex for hostname in server.peers}
         # map of server -> highest replicated log entry index
         self.matchIndex = {hostname: 0 for hostname in server.peers}
-        from scale_raft_server import ScaleRaftThread
-        self._heartbeat_thread = ScaleRaftThread(self.server.hostname, target=self.broadcast_heartbeat)
+        from raft_server import RaftThread
+        self._heartbeat_thread = RaftThread(self.server.hostname, target=self.broadcast_heartbeat)
         self.log_entry_send_queue = []
         self.currentLeaderId = self.server.hostname
         self._heartbeat_thread.start()
@@ -93,7 +93,7 @@ class Leader(BaseState):
                                 self.log.lastLogTerm, self.log.commitIndex, self.log_entry_send_queue)
             self.server.broadcast(obj)
             self.log_entry_send_queue = []
-            sleep(ScaleRaftConfig().HEARTBEAT_INTERVAL_IN_MILLIS / 1000.0)  # sleep before sending next heartbeat
+            sleep(RaftConfig().HEARTBEAT_INTERVAL_IN_MILLIS / 1000.0)  # sleep before sending next heartbeat
 
     def handle(self, obj):
         (cont, resp) = BaseState.handle(self, obj)
@@ -153,8 +153,8 @@ class Candidate(BaseState):
     def __init__(self, server, current_term, voted_for, log, current_leader_id):
         BaseState.__init__(self, server, current_term, voted_for, log, current_leader_id)
         # start election
-        from scale_raft_server import ScaleRaftThread
-        self._start_election_thread = ScaleRaftThread(self.server.hostname, target=self._start_election)
+        from raft_server import RaftThread
+        self._start_election_thread = RaftThread(self.server.hostname, target=self._start_election)
         self.votedFor = None
         self.voteCounter = 0
         self._start_election_thread.start()
