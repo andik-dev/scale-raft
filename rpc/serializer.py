@@ -4,7 +4,7 @@ from rpc.messages import BaseMessage, RequestVote, RequestVoteResponse, AppendEn
     AppendEntries, LogEntry, MessageType, ClientData, ClientDataResponse
 
 
-class ScaleRaftSerializer(object):
+class RaftSerializer(object):
     FIELD_SEPARATOR = ":"
 
     def __init__(self):
@@ -12,7 +12,7 @@ class ScaleRaftSerializer(object):
 
     def deserialize(self, string):
         # version:message_type:PAYLOAD
-        (version, message_type, payload) = string.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
+        (version, message_type, payload) = string.split(RaftSerializer.FIELD_SEPARATOR, 2)
         version = int(version)
         message_type = int(message_type)
         if version != BaseMessage.VERSION:
@@ -66,7 +66,7 @@ class ScaleRaftSerializer(object):
     @staticmethod
     def _serialize_array_to_string(*data):
         res = [str(d) for d in data]
-        return ScaleRaftSerializer.FIELD_SEPARATOR.join(res)
+        return RaftSerializer.FIELD_SEPARATOR.join(res)
 
 
 class InvalidMessageVersionException(Exception):
@@ -78,26 +78,26 @@ class InvalidMessageVersionException(Exception):
         return "Invalid message version: Expected {}, received {}".format(self.expected, self.actual)
 
 
-class RequestVoteSerializer(ScaleRaftSerializer):
+class RequestVoteSerializer(RaftSerializer):
     @staticmethod
     def serialize_to_string(obj):
-        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term, obj.candidateId,
+        return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term, obj.candidateId,
                                                        obj.lastLogIndex, obj.lastLogTerm)
 
     @staticmethod
     def deserialize_from_payload(payload):
-        (term, candidate_id, last_log_index, last_log_term) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 4)
+        (term, candidate_id, last_log_index, last_log_term) = payload.split(RaftSerializer.FIELD_SEPARATOR, 4)
         return RequestVote(term, candidate_id, last_log_index, last_log_term)
 
 
-class RequestVoteResponseSerializer(ScaleRaftSerializer):
+class RequestVoteResponseSerializer(RaftSerializer):
     @staticmethod
     def serialize_to_string(obj):
-        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term, obj.voteGranted)
+        return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term, obj.voteGranted)
 
     @staticmethod
     def deserialize_from_payload(payload):
-        (term, vote_granted) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 1)
+        (term, vote_granted) = payload.split(RaftSerializer.FIELD_SEPARATOR, 1)
         if vote_granted == "True":
             vote_granted = True
         else:
@@ -105,19 +105,19 @@ class RequestVoteResponseSerializer(ScaleRaftSerializer):
         return RequestVoteResponse(term, vote_granted)
 
 
-class AppendEntriesResponseSerializer(ScaleRaftSerializer):
+class AppendEntriesResponseSerializer(RaftSerializer):
     @staticmethod
     def serialize_to_string(obj):
-        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term,
+        return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term,
                                                        obj.success)
 
     @staticmethod
     def deserialize_from_payload(payload):
-        (term, success) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
+        (term, success) = payload.split(RaftSerializer.FIELD_SEPARATOR, 2)
         return AppendEntriesResponse(term, success)
 
 
-class AppendEntriesSerializer(ScaleRaftSerializer):
+class AppendEntriesSerializer(RaftSerializer):
     LOG_ENTRY_FIELD_SEPARATOR = ","
     LOG_ENTRY_SEPARATOR = ";"
 
@@ -130,7 +130,7 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
                     .join([str(le.index), str(le.term), base64.standard_b64encode(str(le.data))])
                 encoded_log_entries.append(encoded_le)
 
-            return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term,
+            return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.term,
                                                                   obj.leaderId, obj.prevLogIndex, obj.prevLogTerm,
                                                                   obj.leaderCommitIndex,
                                                                   AppendEntriesSerializer.LOG_ENTRY_SEPARATOR
@@ -139,7 +139,7 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
     @staticmethod
     def deserialize_from_payload(payload):
         (term, leader_id, prev_log_index, prev_log_term, leader_commit_index, encoded_log_entries) = payload.split(
-            ScaleRaftSerializer.FIELD_SEPARATOR, 5)
+            RaftSerializer.FIELD_SEPARATOR, 5)
 
         # decode log entries
         log_entries = []
@@ -153,24 +153,24 @@ class AppendEntriesSerializer(ScaleRaftSerializer):
                              log_entries)
 
 
-class ClientDataSerializer(ScaleRaftSerializer):
+class ClientDataSerializer(RaftSerializer):
     @staticmethod
     def serialize_to_string(obj):
-        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.data)
+        return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.data)
 
     @staticmethod
     def deserialize_from_payload(payload):
         return ClientData(payload)
 
 
-class ClientDataResponseSerializer(ScaleRaftSerializer):
+class ClientDataResponseSerializer(RaftSerializer):
     @staticmethod
     def serialize_to_string(obj):
-        return ScaleRaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.success, obj.leaderId)
+        return RaftSerializer._serialize_array_to_string(obj.version, obj.message_type, obj.success, obj.leaderId)
 
     @staticmethod
     def deserialize_from_payload(payload):
-        (success, leaderId) = payload.split(ScaleRaftSerializer.FIELD_SEPARATOR, 2)
+        (success, leaderId) = payload.split(RaftSerializer.FIELD_SEPARATOR, 2)
         if success == "True":
             success = True
         else:

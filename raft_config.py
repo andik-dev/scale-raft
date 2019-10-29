@@ -16,4 +16,4 @@ class RaftConfig(object):
 
     # Local properties
     LOG_LEVEL = "DEBUG"
-    LOG_FILE = "/var/log/scaleRaft.log"
+    LOG_FILE = "/var/log/raft-py.log"

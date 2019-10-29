@@ -10,13 +10,13 @@ from helper import helper
 from persistence import synchronized_log
 from rpc.messages import ClientData, ClientDataResponse
 from rpc.rpc_handler import RPCHandler
-from rpc.serializer import ScaleRaftSerializer
+from rpc.serializer import RaftSerializer
 from raft_config import RaftConfig
 from states.states import Follower, Candidate, Leader
 
 logger = logging.getLogger(__name__)
 log_format = '%(asctime)s - %(levelname)s - %(module)s - %(threadName)s - %(message)s'
-# logging.basicConfig(format=logFormat, filename=ScaleRaftConfig().LOG_FILE, level=ScaleRaftConfig().LOG_LEVEL)
+# logging.basicConfig(format=logFormat, filename=RaftConfig().LOG_FILE, level=RaftConfig().LOG_LEVEL)
 logging.basicConfig(format=log_format, level=RaftConfig().LOG_LEVEL)
 
 
@@ -57,7 +57,7 @@ class RaftThread(Thread):
 class RaftServer(object):
     def __init__(self, peers, hostname=RaftConfig().HOSTNAME, port=RaftConfig().PORT,
                  compressor=ZLibCompressor, encryptor=NoOpEncryptor, rpc_handler=RPCHandler,
-                 serializer=ScaleRaftSerializer):
+                 serializer=RaftSerializer):
         self.peers = peers
 
         self.hostname = hostname
@@ -213,9 +213,9 @@ if __name__ == "__main__":
     argparse.add_argument("--port", type=int, default=RaftConfig().PORT)
     args = argparse.parse_args()
 
-    # python scale_raft_server.py --server --host andi-vbox --port 48000 --peers localhost:48001,127.0.0.1:48002
-    # python scale_raft_server.py --server --host localhost --port 48001 --peers andi-vbox:48000,127.0.0.1:48002
-    # python scale_raft_server.py --server --host 127.0.0.1 --port 48002 --peers localhost:48001,andi-vbox:48000
+    # python raft_server.py --server --host andi-vbox --port 48000 --peers localhost:48001,127.0.0.1:48002
+    # python raft_server.py --server --host localhost --port 48001 --peers andi-vbox:48000,127.0.0.1:48002
+    # python raft_server.py --server --host 127.0.0.1 --port 48002 --peers localhost:48001,andi-vbox:48000
     if args.server:
         peer_tuples = []
         for peer in args.peers.split(","):
