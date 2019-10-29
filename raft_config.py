@@ -15,5 +15,5 @@ class RaftConfig(object):
 
 
     # Local properties
-    LOG_LEVEL = "DEBUG"
+    LOG_LEVEL = "INFO"
     LOG_FILE = "/var/log/raft-py.log"

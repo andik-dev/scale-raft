@@ -100,7 +100,7 @@ class RaftServer(object):
             sleep_seconds = random.randint(
                 RaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MIN,
                 RaftConfig().ELECTION_TIMEOUT_IN_MILLIS_MAX) / 1000.0
-            logger.info("{}: Sleeping {} seconds before starting a vote".format(self.hostname, sleep_seconds))
+            logger.debug("{}: Sleeping {} seconds before deciding to start a vote".format(self.hostname, sleep_seconds))
             sleep(sleep_seconds)
             if len(self.peers) > 0 and not isinstance(self.state, Leader) and not isinstance(self.state, Candidate):
                 current_time_millis = helper.get_current_time_millis()
@@ -108,6 +108,9 @@ class RaftServer(object):
                     logger.info("{}: No valid RPC received in the last {} milliseconds, switching to Candidate"
                                 .format(self.hostname, (current_time_millis - self._last_valid_rpc)))
                     self.state = self.state.switch_to(Candidate)
+                else:
+                    logger.debug("{}: Received message from Leader in time, staying a Follower".format(self.hostname))
+
 
     def _handle_msg(self, string):
         self._last_valid_rpc = helper.get_current_time_millis()
@@ -168,14 +171,14 @@ class RaftServer(object):
         return self._deserialize(self.__rpc_handler.send(hostname, port, serialized_string))
 
     def _send_and_handle(self, hostname, port, obj):
-        logger.info("Sending message to {}".format(hostname))
+        logger.debug("Sending message to {}".format(hostname))
         serialized_string = self._serialize(obj)
         send_time = helper.get_current_time_millis()
         resp_string = self.__rpc_handler.send(hostname, port, serialized_string)
         resp_time = helper.get_current_time_millis()
         if resp_time - send_time > 50:
-            logger.error("{}: It took more than 100ms to send a message to and receive a response from: {}:{}".format(
-                self.hostname, hostname, port))
+            logger.warning("{}: It took {}ms to send a message to and receive a response from: {}:{}".format(
+                self.hostname, (resp_time - send_time), hostname, port))
         self._handle_msg(resp_string)
 
     def send_and_handle_async(self, hostname, port, obj):
